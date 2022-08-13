@@ -3,10 +3,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from bs4 import BeautifulSoup
 import requests
+import re
+import os
 
 # Constants
 FOOTBALL_MAIN_URL_PART = r'https://www.pro-football-reference.com'
-FOOTBALL_RUSHING_URL_LAST_PART = r'rushing.htm'
 
 class NFL_Stats:
     #
@@ -14,8 +15,43 @@ class NFL_Stats:
     #
     
     MAX_PLAYERS_TO_RETURN = 150
+    TOP_LEVEL_SAVE_DIR = 'stats'
     
-
+    TEAM_ABR_TO_NAME = {'ARI': ('Arizona', 'Cardinals'),
+                        'ATL': ('Atlanta', 'Falcons'),
+                        'BAL': ('Baltimore', 'Ravens'),
+                        'BUF': ('Buffalo', 'Bills'),
+                        'CAR': ('Carolina', 'Panthers'),
+                        'CHI': ('Chicago', 'Bears'),
+                        'CIN': ('Cincinnati', 'Bengals'),
+                        'CLE': ('Clevland', 'Browns'),
+                        'DAL': ('Dallas', 'Cowboys'),
+                        'DEN': ('Denver', 'Broncos'),
+                        'DET': ('Detroit', 'Lions'),
+                        'GNB': ('Green Bay', 'Packers'),
+                        'HOU': ('Houston', 'Texans'),
+                        'IND': ('Indianapolis', 'Colts'),
+                        'JAX': ('Jacksonville', 'Jaguars'),
+                        'KAN': ('Kansas City', 'Chiefs'),
+                        'LAC': ('Los Angeles', 'Chargers'),
+                        'LAR': ('Los Angeles', 'Rams'),
+                        'LVR': ('Las Vegas', 'Raiders'),
+                        'MIA': ('Miami', 'Dolphins'),
+                        'MIN': ('Minnesota', 'Vikings'),
+                        'NOR': ('New Orleans', 'Saints'),
+                        'NWE': ('New England', 'Patriots'),
+                        'NYG': ('New York', 'Giants'),
+                        'NYJ': ('New York', 'Jets'),
+                        'PHI': ('Philadelphia', 'Eagles'),
+                        'PIT': ('Pittsburgh', 'Steelers'),
+                        'SEA': ('Seattle', 'Seahawks'),
+                        'SFO': ('San Francisco', '49ers'),
+                        'TAM': ('Tampa Bay', 'Buccaneers'),
+                        'TEN': ('Tennessee', 'Titans'),
+                        'WAS': ('Washington', 'Commanders')}
+    
+    #-------------------------------------------------------------------------#
+    
     '''
     @brief Default constructor
     '''
@@ -28,49 +64,53 @@ class NFL_Stats:
     
     '''
     @brief Retrieves the rushing statistics for the year selected
-    @param[in] year An integer value in the range [1975, 2021]
-    @return A DataFrame with the 
-    @returnError Returns None if year for page is invalid
+    @param[in] year An integer year to search stats for
+    @param[in] maxPlayers An integer for the max rows to return in data frame
+    @param[in] saveToCsv A Boolean if saving to csv file
+    @return pandas DataFrame
     '''
-    def getRushingStats(self, year:int, printToCsv:bool=False):
-        print(f'DEBUG: getting rushing stats for the year {year}')
+    def getRushingStats(self, year:int, maxPlayers:np.uint8=MAX_PLAYERS_TO_RETURN, saveToCsv:bool=False):
+        print(f'INFO: getting rushing stats for the year {year}')
         
         target_url = f'https://www.pro-football-reference.com/years/{year}/rushing.htm'
         
         stats = self.__getStats__(target_url, 1)
         
-        # TODO: cleanup player names to remove asterisk (*) and plus-signs (+)
-        
         stats['Year'] = year
         
-        if printToCsv:
-            stats.to_csv(f'nfl_rushing_{year}.csv')     # TODO: edit name and path
-        
-        if len(stats) > self.MAX_PLAYERS_TO_RETURN:
-            stats = stats[:self.MAX_PLAYERS_TO_RETURN]
+        if saveToCsv:
+            self.__saveToCsv__(stats, year,'rushing')
         
         return stats
     
     #-------------------------------------------------------------------------#
     
-    def getPassingStats(self, year:int, printToCsv:bool=False):
-        print(f'DEBUG: getting passing stats for the year {year}')
+    '''
+    @brief Retrieves the passing statistics for the year selected
+    @param[in] year An integer year to search stats for
+    @param[in] maxPlayers An integer for the max rows to return in data frame
+    @param[in] saveToCsv A Boolean if saving to csv file
+    @return pandas DataFrame
+    '''
+    def getPassingStats(self, year:int, maxPlayers:np.uint8=MAX_PLAYERS_TO_RETURN, saveToCsv:bool=False):
+        print(f'INFO: getting passing stats for the year {year}')
         
         target_url = f'https://www.pro-football-reference.com/years/{year}/passing.htm'
         
         stats = self.__getStats__(target_url, 0)
         
-        # TODO: cleanup player names to remove asterisk (*) and plus-signs (+)
-        
         stats['Year'] = year
         
-        if printToCsv:
-            stats.to_csv(f'nfl_passing_{year}.csv')     # TODO: edit name and path
-        
-        if len(stats) > self.MAX_PLAYERS_TO_RETURN:
-            stats = stats[:self.MAX_PLAYERS_TO_RETURN]
+        if saveToCsv:
+            self.__saveToCsv__(stats, year, 'passing')
         
         return stats
+    
+    #-------------------------------------------------------------------------#
+    
+    def correlateRushingStats(self):
+        print('INFO: the "correlateRushingStats" still needs an implementation')
+        # TODO: how to bring years together
     
     #-------------------------------------------------------------------------#
     
@@ -84,19 +124,18 @@ class NFL_Stats:
     @param[in] target_table An int for which table found to use
     @param[in] num_rows_to_return An int for the number of rows to allow in
     the return DataFrame
-    @return A pandas DataFrame
+    @return pandas DataFrame
     '''
-    def __getStats__(self, target_url:str, 
-                     target_table:int=0,
-                     num_rows_to_return:int=MAX_PLAYERS_TO_RETURN):
+    def __getStats__(self, target_url:str, target_table:np.uint8=0,
+                     num_rows_to_return:np.uint8=MAX_PLAYERS_TO_RETURN):
         print(f'DEBUG: fetching info from the url {target_url}')
-        print(f'DEBUG: the targetTable is {target_table}')
+        print(f'DEBUG: the target table is {target_table}')
         
         try:
             pages = requests.get(target_url)
         except Exception as e:
-            print(f'ERROR: failed to retrieve info for url {target_url}\n\n{e}')
-            return None
+            print(f'ERROR: failed to retrieve info for url {target_url}')
+            raise(e)
             
         # create a parser
         soup = BeautifulSoup(pages.text, 'lxml')
@@ -120,6 +159,57 @@ class NFL_Stats:
         if len(stats) > num_rows_to_return:
             stats = stats[:num_rows_to_return]
         
+        #
+        # Cleanup DataFrame
+        #
+        
+        # Remove players that played for multiple teams, '2TM', probably low anyways
+        stats = stats[stats['Tm'].map(lambda x: x in self.TEAM_ABR_TO_NAME.keys())]
+        
+        # Add columns for Team City and Team Name
+        stats['Team City'] = stats['Tm'].map(lambda x: self.TEAM_ABR_TO_NAME[x][0])
+        stats['Team Name'] = stats['Tm'].map(lambda x: self.TEAM_ABR_TO_NAME[x][1])
+        
+        # Review player names to remove asterisk (*) and plus-signs (+)
+        pattern = '.*(?<![*+])' # keep all characters that precede a '*' and/or '+' 
+        stats['Player'] = stats['Player'].map(lambda x: re.match(pattern, x).group())
+        
         return stats
+    
+    #-------------------------------------------------------------------------#
+    
+    '''
+    @brief Saves the DataFrame as a csv to the specied path
+    @param[in] pDf Pandas DataFrame to save
+    @param[in] pYear The year to save under
+    @param[in] pStatType The stat type being saved
+    '''
+    def __saveToCsv__(self, pDf:pd.DataFrame, pYear:np.uint16, pStatType:str):
+        filename = f'nfl_{pStatType}_{pYear}.csv'
+        
+        savePath = os.path.join(self.TOP_LEVEL_SAVE_DIR, f'{pYear}', f'{pStatType}') 
+        fileSave = os.path.join(savePath, filename)
+        
+        # verify the save paths exists, create other wise
+        print(f'DEBUG: saving to path {savePath}')
+        
+        if not os.path.exists(self.TOP_LEVEL_SAVE_DIR):
+            os.mkdir(self.TOP_LEVEL_SAVE_DIR)
+        
+        subDir1 = os.path.join(self.TOP_LEVEL_SAVE_DIR, f'{pYear}')
+        if not os.path.exists(subDir1):
+            os.mkdir(subDir1)
+        
+        if not os.path.exists((savePath)):
+            os.mkdir(savePath)
+        
+        print(f'INFO: saving {pYear} {pStatType} stats to {fileSave}')
+        pDf.to_csv(fileSave)
+    
+    #-------------------------------------------------------------------------#
+    
+    
+    
+    #-------------------------------------------------------------------------#
     
 #-----------------------------------------------------------------------------#

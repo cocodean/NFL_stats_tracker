@@ -4,6 +4,8 @@ Created on Sun Nov  5 15:08:57 2023
 
 @author: cocod
 """
+# Constants
+MAIN_URL = r'https://www.pro-football-reference.com'
 
 TEAM_ABR_TO_NAME = {'ARI': ('Arizona', 'Cardinals'),
                         'ATL': ('Atlanta', 'Falcons'),
@@ -37,4 +39,9 @@ TEAM_ABR_TO_NAME = {'ARI': ('Arizona', 'Cardinals'),
                         'TAM': ('Tampa Bay', 'Buccaneers'),
                         'TEN': ('Tennessee', 'Titans'),
                         'WAS': ('Washington', 'Commanders')}
+
+TARGET_GAME_TABLES = ('game_info', 'team_stats', 'player_offense', 
+                      'player_defense', 'returns', 'kicking',
+                      'passing_advanced', 'rushing_advanced',
+                      'receiving_advanced', 'defense_advanced')
 

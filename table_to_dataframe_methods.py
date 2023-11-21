@@ -7,6 +7,7 @@ Created on Sun Nov  5 14:33:08 2023
 
 import pandas as pd
 import bs4
+import os
 
 from nfl_stats_scraper_constants import TEAM_ABR_TO_NAME
 
@@ -142,9 +143,157 @@ def get_defense_advanced_df(table:bs4.element.Tag):
 
 #----------------------------------------------------------------------------#
 
-#
-# Map for table parsing methods
-#
+def convert_game_info_to_main(csv_path:str):
+    pass
+
+#----------------------------------------------------------------------------#
+
+def convert_team_stats_to_main(csv_path:str, main_path:str, 
+                               week_num:int, year:int):
+    
+    # try:
+    # verify file exists
+    if not os.path.exists(csv_path):
+        print(f'ERROR: no team stats found for {csv_path}')
+        return
+    
+    # get csv data
+    df = pd.read_csv(csv_path)
+    
+    # verify column has been updated
+    if 'Unnamed: 0' in df.columns:
+        # convert the unnamed column
+        df.rename(columns={'Unnamed: 0': 'Team'}, inplace=True)
+    
+    # verify the number of teams
+    teams = df['Team'].values
+    if len(teams) != 2:
+        print(f'WARNING: found {len(teams)} teams for csv {csv_path}')
+        return
+    
+    # Get the stats for the teams
+    for team in teams:
+        if team not in TEAM_ABR_TO_NAME.keys():
+            print(f'ERROR: Team -> {team} is not recognized.')
+            continue
+        
+        dtemp = dict()
+        
+        for col in df.columns:
+            val_col = df[col].values[0]
+            if 'Team' == col:
+                # skip
+                continue
+            elif 'Rush-Yds-TDs' == col:
+                vals = val_col.split('-')
+                
+                feat_name = 'rushing attemtps game'
+                dtemp[feat_name] = int(vals[0])
+                
+                feat_name = 'rushing yards game'
+                dtemp[feat_name] = int(vals[1])
+                
+                feat_name = 'rushing touchdowns game'
+                dtemp[feat_name] = int(vals[2])
+            elif 'Cmp-Att-Yd-TD-INT' == col:
+                vals = val_col.split('-')
+                
+                feat_name = 'passing completions game'
+                dtemp[feat_name] = int(vals[0])
+                
+                feat_name = 'passing attempts game'
+                dtemp[feat_name] = int(vals[1])
+                
+                feat_name = 'passing yards game'
+                dtemp[feat_name] = int(vals[2])
+                
+                feat_name = 'passing touchdowns game'
+                dtemp[feat_name] = int(vals[3])
+                
+                feat_name = 'passing interceptions game'
+                dtemp[feat_name] = int(vals[4])
+            elif 'Sacked-Yards' == col:
+                vals = val_col.split('-')
+                
+                feat_name = 'offense sacked game'
+                dtemp[feat_name] = int(vals[0])
+                
+                feat_name = 'offense sacked yards game'
+                dtemp[feat_name] = int(vals[1])
+            elif 'Fumbles-Lost' == col:
+                vals = val_col.split('-')
+                
+                feat_name = 'team fumbles game'
+                dtemp[feat_name] = int(vals[0])
+                
+                feat_name = 'team fumbles lost game'
+                dtemp[feat_name] = int(vals[1])
+            elif 'Penalties-Yards' == col:
+                vals = val_col.split('-')
+                
+                feat_name = 'penalties game'
+                dtemp[feat_name] = int(vals[0])
+                
+                feat_name = 'penalty yards game'
+                dtemp[feat_name] = int(vals[1])
+            elif 'Third Down Conv.' == col:
+                vals = val_col.split('-')
+                
+                feat_name = 'third down conversion attempts game'
+                dtemp[feat_name] = int(vals[1])
+                
+                feat_name = 'third down conversion successes game'
+                dtemp[feat_name] = int(vals[0])
+            elif 'Fourth Down Conv.' == col:
+                vals = val_col.split('-')
+                
+                feat_name = 'fourth down conversion attempts game'
+                dtemp[feat_name] = int(vals[1])
+                
+                feat_name = 'fourth down conversion successes game'
+                dtemp[feat_name] = int(vals[0])
+            elif 'Time of Possession' == col:
+                vals = val_col.split(':')
+                
+                total_mins = int(vals[0])/1.0 + int(vals[1])/60.0
+                feat_name = col + ' game'
+                dtemp[feat_name] = total_mins
+            else:
+                # process normally
+                feat_name = col + ' game'
+                dtemp[feat_name] = val_col
+                
+        dtemp['Week'] = week_num
+        dtemp['Year'] = year
+        
+        # Add to the main team csv
+        team_csv = os.path.join(main_path, f'{team}_season_{year}.csv')
+        if os.path.exists(team_csv):
+            df_team = pd.read_csv(team_csv)
+        else:
+            df_team = pd.DataFrame()
+        
+        df_temp = pd.DataFrame([dtemp])
+        df_team = pd.concat([df_team, df_temp], axis=0)
+        
+        # save the updated dataframe
+        df_team.to_csv(team_csv)
+        
+    # except Exception as e:
+    #     print(f"ERROR: convert team stats for {csv_path}. Reason --> {e}\n")
+
+#----------------------------------------------------------------------------#
+
+def convert_player_offense(csv_path:str, main_path:str, week_num:int, year:int):
+    pass
+
+#----------------------------------------------------------------------------#
+
+''' 
+    Map of methods for the different table types parsed from a weekly game
+    found on,
+    https://www.pro-football-reference.com
+'''
 METHOD_CONVERSION_MAP = {'game_info': get_game_info_df, 
                          'team_stats': get_team_stats_df,
                          'player_offense': get_player_offense_df,
@@ -156,5 +305,5 @@ METHOD_CONVERSION_MAP = {'game_info': get_game_info_df,
                          'receiving_advanced': get_receiving_advanced_df,
                          'defense_advanced': get_defense_advanced_df}
 
-#----------------------------------------------------------------------------#
 
+#----------------------------------------------------------------------------#

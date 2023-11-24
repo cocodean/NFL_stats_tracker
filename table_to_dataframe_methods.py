@@ -6,12 +6,18 @@ Created on Sun Nov  5 14:33:08 2023
 """
 
 import pandas as pd
+import numpy as np
 import bs4
 import os
 
-from nfl_stats_scraper_constants import TEAM_ABR_TO_NAME
+import nfl_stats_scraper_constants as nssc
+# from nfl_stats_scraper_constants import TEAM_ABR_TO_NAME
 
 #----------------------------------------------------------------------------#
+
+# 
+# Methods used for scraping the HTML tables
+#
 
 def get_simple_table_df(table:bs4.element.Tag):
     try:
@@ -56,7 +62,7 @@ def get_combined_multi_col_df(table:bs4.element.Tag, tableName:str):
         
         df.rename(columns=multi_col_names, level=0, inplace=True)
         
-        mask = [v in TEAM_ABR_TO_NAME.keys() for v in df[('Team', 'Tm')]]
+        mask = [v in nssc.TEAM_ABR_TO_NAME.keys() for v in df[('Team', 'Tm')]]
         
         df = df[mask]
         
@@ -103,7 +109,7 @@ def get_simple_combined_df(table:bs4.element.Tag, tableName:str):
     try:
         df = pd.read_html(table.prettify('utf-8'))[0]
         
-        mask = [v in TEAM_ABR_TO_NAME.keys() for v in df['Tm']]
+        mask = [v in nssc.TEAM_ABR_TO_NAME.keys() for v in df['Tm']]
             
         df = df[mask]
         
@@ -143,6 +149,10 @@ def get_defense_advanced_df(table:bs4.element.Tag):
 
 #----------------------------------------------------------------------------#
 
+#
+# Methods for combining the scraped tables
+#
+
 def convert_game_info_to_main(csv_path:str):
     pass
 
@@ -173,7 +183,7 @@ def convert_team_stats_to_main(csv_path:str, main_path:str,
     
     # Get the stats for the teams
     for team in teams:
-        if team not in TEAM_ABR_TO_NAME.keys():
+        if team not in nssc.TEAM_ABR_TO_NAME.keys():
             print(f'ERROR: Team -> {team} is not recognized.')
             continue
         
@@ -271,21 +281,232 @@ def convert_team_stats_to_main(csv_path:str, main_path:str,
         if os.path.exists(team_csv):
             df_team = pd.read_csv(team_csv)
         else:
+            print(f'INFO: creating csv for {team_csv}')
             df_team = pd.DataFrame()
         
         df_temp = pd.DataFrame([dtemp])
-        df_team = pd.concat([df_team, df_temp], axis=0)
+        if 'Week' in df_team.columns and 'Year' in df_team.columns:
+            df_team = pd.DataFrame.merge(df_team, df_temp, on=['Week', 'Year'])
+        else:
+            df_team = pd.concat([df_team, df_temp], axis=0)
         
         # save the updated dataframe
-        df_team.to_csv(team_csv)
+        df_team.to_csv(team_csv, index=False)
         
     # except Exception as e:
     #     print(f"ERROR: convert team stats for {csv_path}. Reason --> {e}\n")
 
 #----------------------------------------------------------------------------#
 
-def convert_player_offense(csv_path:str, main_path:str, week_num:int, year:int):
-    pass
+def convert_player_offense_to_main(csv_path:str, main_path:str, 
+                                   week_num:int, year:int):
+    
+    # verify file exists
+    if not os.path.exists(csv_path):
+        print(f'ERROR: no player offense stats found for {csv_path}')
+        return
+    
+    # get csv data
+    df = pd.read_csv(csv_path)
+    
+    # verify the number of teams
+    teams = set(df['Team'])
+    teams = [team for team in teams if team in nssc.TEAM_ABR_TO_NAME.keys()]
+    if len(teams) != 2:
+        print(f'ERROR: found {len(teams)} teams for file {csv_path}')
+        return
+    
+    # Get the stats for the teams
+    for team in teams:
+        df_team = df[df['Team'] == team]
+        
+        # dictionary used to build up the dataframe to add 
+        dtemp = dict()
+        dtemp['Week'] = week_num
+        dtemp['Year'] = year
+        # process each feature
+        for feat_key in nssc.PLAYER_OFFENSE_COLUMN_MAP.keys():
+            method = nssc.PLAYER_OFFENSE_COLUMN_MAP[feat_key][nssc.PO_METHOD_IDX]
+            feat_name = nssc.PLAYER_OFFENSE_COLUMN_MAP[feat_key][nssc.PO_NAME_IDX]
+            
+            if feat_key not in df_team.columns:
+                print(f'ERROR: did not find the feature {feat_key} in player offense csv')
+                continue
+            val = method(df_team[feat_key].astype(np.float))
+            dtemp[feat_name] = val
+        
+        # open the team data frame to add the data
+        team_csv = os.path.join(main_path, f'{team}_season_{year}.csv')
+        if os.path.exists(team_csv):
+            df_main = pd.read_csv(team_csv)
+        else:
+            print(f'INFO: creating csv for {team_csv}')
+            df_main = pd.DataFrame()
+        
+        df_temp = pd.DataFrame([dtemp])
+        df_main = pd.DataFrame.merge(df_main, df_temp, on=['Week', 'Year'])
+        
+        # save the updated dataframe
+        df_main.to_csv(team_csv, index=False)
+
+#----------------------------------------------------------------------------#
+
+def convert_player_defense_to_main(csv_path:str, main_path:str, 
+                                   week_num:int, year:int):
+    # verify file exists
+    if not os.path.exists(csv_path):
+        print(f'ERROR: no player defense stats found for {csv_path}')
+        return
+    
+    # get csv data
+    df = pd.read_csv(csv_path)
+    
+    # verify the number of teams
+    teams = set(df['Team'])
+    teams = [team for team in teams if team in nssc.TEAM_ABR_TO_NAME.keys()]
+    if len(teams) != 2:
+        print(f'ERROR: found {len(teams)} teams for file {csv_path}')
+        return
+    
+    # Get the stats for the teams
+    for team in teams:
+        df_team = df[df['Team'] == team]
+        
+        # dictionary used to build up the dataframe to add 
+        dtemp = dict()
+        dtemp['Week'] = week_num
+        dtemp['Year'] = year
+        # process each feature
+        for feat_key in nssc.PLAYER_DEFENSE_COLUMN_MAP.keys():
+            method = nssc.PLAYER_DEFENSE_COLUMN_MAP[feat_key][nssc.PD_METHOD_IDX]
+            feat_name = nssc.PLAYER_DEFENSE_COLUMN_MAP[feat_key][nssc.PD_NAME_IDX]
+            
+            if feat_key not in df_team.columns:
+                print(f'ERROR: did not find the feature {feat_key} in player offense csv')
+                continue
+            
+            val = method(df_team[feat_key].astype(np.float))
+            dtemp[feat_name] = val
+        
+        # open the team data frame to add the data
+        team_csv = os.path.join(main_path, f'{team}_season_{year}.csv')
+        if os.path.exists(team_csv):
+            df_main = pd.read_csv(team_csv)
+        else:
+            print(f'INFO: creating csv for {team_csv}')
+            df_main = pd.DataFrame()
+        
+        df_temp = pd.DataFrame([dtemp])
+        df_main = pd.DataFrame.merge(df_main, df_temp, on=['Week', 'Year'])
+        
+        # save the updated dataframe
+        df_main.to_csv(team_csv, index=False)
+
+#----------------------------------------------------------------------------#
+
+def convert_kicking_to_main(csv_path:str, main_path:str, 
+                                   week_num:int, year:int):
+    # verify file exists
+    if not os.path.exists(csv_path):
+        print(f'ERROR: no kicking stats found for {csv_path}')
+        return
+    
+    # get csv data
+    df = pd.read_csv(csv_path)
+    
+    # verify the number of teams
+    teams = set(df['Team'])
+    teams = [team for team in teams if team in nssc.TEAM_ABR_TO_NAME.keys()]
+    if len(teams) != 2:
+        print(f'ERROR: found {len(teams)} teams for file {csv_path}')
+        return
+    
+    # Get the stats for the teams
+    for team in teams:
+        df_team = df[df['Team'] == team]
+        
+        # dictionary used to build up the dataframe to add 
+        dtemp = dict()
+        dtemp['Week'] = week_num
+        dtemp['Year'] = year
+        # process each feature
+        for feat_key in nssc.KICKING_COLUMN_MAP.keys():
+            method = nssc.KICKING_COLUMN_MAP[feat_key][nssc.K__METHOD_IDX]
+            feat_name = nssc.KICKING_COLUMN_MAP[feat_key][nssc.K__NAME_IDX]
+            
+            if feat_key not in df_team.columns:
+                print(f'ERROR: did not find the feature {feat_key} in player offense csv')
+                continue
+            
+            val = method(df_team[feat_key].astype(np.float))
+            dtemp[feat_name] = val
+        
+        # open the team data frame to add the data
+        team_csv = os.path.join(main_path, f'{team}_season_{year}.csv')
+        if os.path.exists(team_csv):
+            df_main = pd.read_csv(team_csv)
+        else:
+            print(f'INFO: creating csv for {team_csv}')
+            df_main = pd.DataFrame()
+        
+        df_temp = pd.DataFrame([dtemp])
+        df_main = pd.DataFrame.merge(df_main, df_temp, on=['Week', 'Year'])
+        
+        # save the updated dataframe
+        df_main.to_csv(team_csv, index=False)
+
+#----------------------------------------------------------------------------#
+
+def convert_returns_to_main(csv_path:str, main_path:str, 
+                                   week_num:int, year:int):
+    # verify file exists
+    if not os.path.exists(csv_path):
+        print(f'ERROR: no return stats found for {csv_path}')
+        return
+    
+    # get csv data
+    df = pd.read_csv(csv_path)
+    
+    # verify the number of teams
+    teams = set(df['Team'])
+    teams = [team for team in teams if team in nssc.TEAM_ABR_TO_NAME.keys()]
+    if len(teams) != 2:
+        print(f'ERROR: found {len(teams)} teams for file {csv_path}')
+        return
+    
+    # Get the stats for the teams
+    for team in teams:
+        df_team = df[df['Team'] == team]
+        
+        # dictionary used to build up the dataframe to add 
+        dtemp = dict()
+        dtemp['Week'] = week_num
+        dtemp['Year'] = year
+        # process each feature
+        for feat_key in nssc.RETURNS_COLUMN_MAP.keys():
+            method = nssc.RETURNS_COLUMN_MAP[feat_key][nssc.KR_METHOD_IDX]
+            feat_name = nssc.RETURNS_COLUMN_MAP[feat_key][nssc.KR_NAME_IDX]
+            
+            if feat_key not in df_team.columns:
+                print(f'ERROR: did not find the feature {feat_key} in player offense csv')
+                continue
+            
+            val = method(df_team[feat_key].astype(np.float))
+            dtemp[feat_name] = val
+        
+        # open the team data frame to add the data
+        team_csv = os.path.join(main_path, f'{team}_season_{year}.csv')
+        if os.path.exists(team_csv):
+            df_main = pd.read_csv(team_csv)
+        else:
+            print(f'INFO: creating csv for {team_csv}')
+            df_main = pd.DataFrame()
+        
+        df_temp = pd.DataFrame([dtemp])
+        df_main = pd.DataFrame.merge(df_main, df_temp, on=['Week', 'Year'])
+        
+        # save the updated dataframe
+        df_main.to_csv(team_csv, index=False)
 
 #----------------------------------------------------------------------------#
 

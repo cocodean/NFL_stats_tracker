@@ -192,7 +192,8 @@ class NFL_Stats_Scraper:
                     csvPath = os.path.join(savePath, str(year), f'week_{weekNum}', game_key)
                     self.__save_to_csv__(df, csvName, csvPath)
             
-            time.sleep(60)
+            # wait to try a new web page
+            time.sleep(10)
         
         return games_dfs
     
@@ -226,6 +227,30 @@ class NFL_Stats_Scraper:
             raise(e)
         
         return soup
+    
+    #-------------------------------------------------------------------------#
+    
+    def combine_season_stats(self, year_dir:str):
+        TOTAL_WEEKS = 18
+        TOTAL_GAMES = 16
+        
+        # Cycle through all the weeks of the season
+        for week_num in range(1, TOTAL_WEEKS + 1):
+            week_dir = os.path.join(year_dir, f'week_{week_num}')
+            if not os.path.exists(week_dir):
+                print(f'ERROR: The folder {week_dir} does not exist')
+                continue
+            
+            # Cycle through all the games for the week
+            for game_num in range(TOTAL_GAMES):
+                game_dir = os.path.join(week_dir, f'game_{game_num}')
+                if not os.path.exists(game_dir):
+                    print(f'ERROR: The folder {game_dir} does not exist')
+                    continue
+                
+                # cycle through the csvs 
+                
+                    # process into the main season team data frame
     
     #-------------------------------------------------------------------------#
     
@@ -293,7 +318,7 @@ class NFL_Stats_Scraper:
     
     #-------------------------------------------------------------------------#
     
-    def __save_to_csv__(self, df:pd.DataFrame, csvName:str, csvPath:str):
+    def __save_to_csv__(self, df:pd.DataFrame, csvName:str, csvPath:str, saveIndex:bool=False):
         '''
         Saves the DataFrame as a csv to the specied path
 
@@ -305,6 +330,9 @@ class NFL_Stats_Scraper:
             The csv file name to save to.
         csvPath : str
             The path to save the csv file.
+        
+        saveIndex : bool
+            If the index name/values of the DataFrame shoulde be saved
 
         Returns
         -------
@@ -312,11 +340,12 @@ class NFL_Stats_Scraper:
         '''        
         # verify the save paths exists, create other wise        
         if not os.path.exists(csvPath):
+            print(f'INFO: creating path for {csvPath}')
             os.makedirs(csvPath, exist_ok=True)
         
         csvFile = os.path.join(csvPath, csvName)
         
         print(f'INFO: saving dataframe to {csvFile}')
-        df.to_csv(csvFile)
+        df.to_csv(csvFile, index=saveIndex)
     
 #-----------------------------------------------------------------------------#

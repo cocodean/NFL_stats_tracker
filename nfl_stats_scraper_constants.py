@@ -18,7 +18,7 @@ TEAM_ABR_TO_NAME = {'ARI': ('Arizona', 'Cardinals'),
                         'CAR': ('Carolina', 'Panthers'),
                         'CHI': ('Chicago', 'Bears'),
                         'CIN': ('Cincinnati', 'Bengals'),
-                        'CLE': ('Clevland', 'Browns'),
+                        'CLE': ('Cleveland', 'Browns'),
                         'DAL': ('Dallas', 'Cowboys'),
                         'DEN': ('Denver', 'Broncos'),
                         'DET': ('Detroit', 'Lions'),
@@ -27,8 +27,11 @@ TEAM_ABR_TO_NAME = {'ARI': ('Arizona', 'Cardinals'),
                         'IND': ('Indianapolis', 'Colts'),
                         'JAX': ('Jacksonville', 'Jaguars'),
                         'KAN': ('Kansas City', 'Chiefs'),
+                        'SDG': ('San Diego', 'Chargers'),
                         'LAC': ('Los Angeles', 'Chargers'),
+                        'STL': ('St. Louis', 'Rams'),
                         'LAR': ('Los Angeles', 'Rams'),
+                        'OAK': ('Oakland', 'Raiders'),
                         'LVR': ('Las Vegas', 'Raiders'),
                         'MIA': ('Miami', 'Dolphins'),
                         'MIN': ('Minnesota', 'Vikings'),
@@ -42,20 +45,31 @@ TEAM_ABR_TO_NAME = {'ARI': ('Arizona', 'Cardinals'),
                         'SFO': ('San Francisco', '49ers'),
                         'TAM': ('Tampa Bay', 'Buccaneers'),
                         'TEN': ('Tennessee', 'Titans'),
-                        'WAS': ('Washington', 'Commanders')}
+                        'WAS': ('Washington', 'Redskins')
+                        # 'WAS': ('Washington', 'Commanders')
+                        }
 
 TEAM_CITY_IDX = 0
 TEAM_NAME_IDX = 1
+
+# The number of seconds to sleep between webpage source code requests
+SLEEP_GET_SOUP_SEC = 5
 
 #-----------------------------------------------------------------------------#
 
 #
 # HTML Table Constants
 #
-TARGET_GAME_TABLES = ('game_info', 'team_stats', 'player_offense', 
-                      'player_defense', 'returns', 'kicking',
-                      'passing_advanced', 'rushing_advanced',
-                      'receiving_advanced', 'defense_advanced')
+TARGET_GAME_TABLES = ('game_info', 
+                      'team_stats', 
+                      'player_offense', 
+                      'player_defense', 
+                      'returns', 
+                      'kicking',
+                      'passing_advanced', 
+                      'rushing_advanced',
+                      'receiving_advanced', 
+                      'defense_advanced')
 
 #
 # Constants for converting HTML tables to feature names
@@ -72,9 +86,36 @@ TABLE_COLUMN_ABR_TO_NAME = {
     'Lng': 'Long',
     }
 
-simple_sum = lambda colX: np.nansum(colX)
-simple_max = lambda xCol: np.nanmax(xCol)
-calc_avg_rate = lambda xCol: 0 if len(xCol.dropna()) == 0 else np.nansum(xCol) / np.sum([1.0 for x in xCol if x > 0])
+simple_sum = lambda colX: 0 if len(colX.dropna()) == 0 else np.nansum(colX)
+simple_max = lambda xCol: 0 if len(xCol.dropna()) == 0 else np.nanmax(xCol)
+calc_avg_rate = lambda xCol: 0 if len(xCol.dropna()) == 0 else np.nansum(xCol) / np.sum([1.0 for x in xCol if isinstance(x, float)])
+
+GAME_INFO_COLUMNS = ('GI Vegas Line',
+                     'GI Over/Under')
+
+TEAM_STATS_COLUMNS = ('TS First Downs',	
+                      'TS Rushing Attemtps',
+                      'TS Rushing Yards',
+                      'TS Rushing TDs',
+                      'TS Passing Completions',
+                      'TS Passing Attempts',
+                      'TS Passing Yards',
+                      'TS Passing TDs',
+                      'TS Passing INTs',
+                      'TS Offensive Sacks',
+                      'TS Offensive Sacks Yards',
+                      'TS Net Pass Yards',
+                      'TS Total Yards',
+                      'TS Team Fumbles',
+                      'TS Team Fumbles Lost',
+                      'TS Turnovers',
+                      'TS Penalties',
+                      'TS Penalty Yards',
+                      'TS 3rd Down Conversion Attempts',
+                      'TS 3rd Down Conversion Successes',
+                      'TS 4th Down Conversion Attempts',
+                      'TS 4th Down Conversion Successes',
+                      'TS Time of Possession')
 
 PO_NAME_IDX = 0 # The name of the converted column in the output csv
 PO_METHOD_IDX = 1 # The method used to convert the column into a single value
@@ -150,6 +191,17 @@ RETURNS_COLUMN_MAP = {
     'Punt Returns.2': ('KR Punt Return Yards Avg', calc_avg_rate),
     'Punt Returns.3': ('KR Punt Return TDs', simple_sum),
     'Punt Returns.4': ('KR Punt Return Long Yards', simple_max)
+    }
+
+MASTER_NAME_IDX = 0
+MASTER_METHOD_IDX = 1
+MASTER_TABLE_COLUMN_MAP = {
+    'game info': None,
+    'team stats': None,
+    'player offense': PLAYER_OFFENSE_COLUMN_MAP,
+    'player defense': PLAYER_DEFENSE_COLUMN_MAP,
+    'kicking': KICKING_COLUMN_MAP,
+    'returns': RETURNS_COLUMN_MAP
     }
 
 #-----------------------------------------------------------------------------#

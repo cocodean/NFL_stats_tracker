@@ -10,7 +10,7 @@ import re
 import os
 import time
 
-from nfl_stats_scraper_constants import TEAM_ABR_TO_NAME, MAIN_URL, TARGET_GAME_TABLES
+from nfl_stats_scraper_constants import TEAM_ABR_TO_NAME, MAIN_URL, TARGET_GAME_TABLES, SLEEP_GET_SOUP_SEC
 from table_to_dataframe_methods import METHOD_CONVERSION_MAP, get_simple_table_df
 
 class NFL_Stats_Scraper:
@@ -35,7 +35,7 @@ class NFL_Stats_Scraper:
         
     #-------------------------------------------------------------------------#
     
-    def get_rushing_stats(self, year:int, saveCsv:bool=False, csvPath:str='.'):
+    def get_rushing_stats(self, year:int, save_csv:bool=False, csv_path:str='.'):
         '''
         Retrieves the player rushing statistics for the year selected
 
@@ -43,9 +43,9 @@ class NFL_Stats_Scraper:
         ----------
         year : int
             The footbal year.
-        saveCsv : bool, optional
+        save_csv : bool, optional
             If the csv should be saved. The default is False.
-        csvPath : str
+        csv_path : str
             The path to save the csv file. The default is '.'
 
         Returns
@@ -66,16 +66,16 @@ class NFL_Stats_Scraper:
         
         stats['Year'] = year
         
-        if saveCsv:
+        if save_csv:
             csv_name = f'rushing_stats_{year}'
-            csv_path = os.path.join(csvPath, 'rushing')
-            self.__save_to_csv__(stats, csv_name, csv_path)
+            rushing_csv_path = os.path.join(csv_path, 'rushing')
+            self.__save_to_csv__(stats, csv_name, rushing_csv_path)
         
         return stats
     
     #-------------------------------------------------------------------------#
     
-    def get_passing_stats(self, year:int, saveCsv:bool=False, csvPath:str='.'):
+    def get_passing_stats(self, year:int, save_csv:bool=False, csv_path:str='.'):
         '''
         Retrieves the player passing statistics for the year selected
 
@@ -83,9 +83,9 @@ class NFL_Stats_Scraper:
         ----------
         year : int
             The footbal year.
-        saveCsv : bool, optional
+        save_csv : bool, optional
             If the csv should be saved. The default is False.
-        csvPath : str
+        csv_path : str
             The path to save the csv file. The default is '.'
 
         Returns
@@ -106,24 +106,24 @@ class NFL_Stats_Scraper:
         
         stats['Year'] = year
         
-        if saveCsv:
-            csv_name = f'rushing_stats_{year}'
-            csv_path = os.path.join(csvPath, 'rushing')
-            self.__save_to_csv__(stats, csv_name, csv_path)
+        if save_csv:
+            csv_name = f'passing_stats_{year}'
+            passing_csv_path = os.path.join(csv_path, 'passing')
+            self.__save_to_csv__(stats, csv_name, passing_csv_path)
         
         return stats
     
     #-------------------------------------------------------------------------#
     
-    def get_week_game_stats(self, year:int, weekNum:int, saveToCsv:bool=False,
-                            savePath:str='.'):
+    def get_week_game_stats(self, year:int, week_num:int, save_csv:bool=False,
+                            save_path:str='.'):
         '''
         Gets the DataFrames for a week's worth of games for the specified year
         Parameters
         ----------
         year : int
             The year to search statistics for. Limited to [1980, Present_Year]
-        weekNum : int
+        week_num : int
             The game week to get statistics for. Limited to 17 before 2021 and
             18 for 2021 and after.
 
@@ -133,9 +133,9 @@ class NFL_Stats_Scraper:
             dictionary of dictionaries of pd.DataFrame
             Ex. games_dfs['game_0']['team_stats'] = pd.DataFrame
         '''
-        print(f'INFO: getting game stats for week {weekNum} of year {year}')
+        print(f'INFO: getting game stats for week {week_num} of year {year}')
         
-        target_url = f'{MAIN_URL}/years/{year}/week_{weekNum}.htm'
+        target_url = f'{MAIN_URL}/years/{year}/week_{week_num}.htm'
         
         soup = self.get_soup(target_url)
         
@@ -186,10 +186,10 @@ class NFL_Stats_Scraper:
                 
                 games_dfs[game_key][tableName] = df
                 
-                if saveToCsv:
-                    print(f'DEBUG: Saving the dataframe for week {weekNum} game {game_key} {tableName}')
+                if save_csv:
+                    print(f'DEBUG: Saving the dataframe for week {week_num} game {game_key} {tableName}')
                     csvName = f'{tableName}.csv'
-                    csvPath = os.path.join(savePath, str(year), f'week_{weekNum}', game_key)
+                    csvPath = os.path.join(save_path, str(year), f'week_{week_num}', game_key)
                     self.__save_to_csv__(df, csvName, csvPath)
             
             # wait to try a new web page
@@ -217,7 +217,7 @@ class NFL_Stats_Scraper:
         
         try:
             self.__mDriver.get(target_url)
-            time.sleep(20)   # let the webpage load
+            time.sleep(SLEEP_GET_SOUP_SEC)   # let the webpage load
             page_source = self.__mDriver.page_source
             
             # create a parser
@@ -227,30 +227,6 @@ class NFL_Stats_Scraper:
             raise(e)
         
         return soup
-    
-    #-------------------------------------------------------------------------#
-    
-    def combine_season_stats(self, year_dir:str):
-        TOTAL_WEEKS = 18
-        TOTAL_GAMES = 16
-        
-        # Cycle through all the weeks of the season
-        for week_num in range(1, TOTAL_WEEKS + 1):
-            week_dir = os.path.join(year_dir, f'week_{week_num}')
-            if not os.path.exists(week_dir):
-                print(f'ERROR: The folder {week_dir} does not exist')
-                continue
-            
-            # Cycle through all the games for the week
-            for game_num in range(TOTAL_GAMES):
-                game_dir = os.path.join(week_dir, f'game_{game_num}')
-                if not os.path.exists(game_dir):
-                    print(f'ERROR: The folder {game_dir} does not exist')
-                    continue
-                
-                # cycle through the csvs 
-                
-                    # process into the main season team data frame
     
     #-------------------------------------------------------------------------#
     
@@ -318,7 +294,7 @@ class NFL_Stats_Scraper:
     
     #-------------------------------------------------------------------------#
     
-    def __save_to_csv__(self, df:pd.DataFrame, csvName:str, csvPath:str, saveIndex:bool=False):
+    def __save_to_csv__(self, df:pd.DataFrame, csv_name:str, csv_path:str, save_index:bool=False):
         '''
         Saves the DataFrame as a csv to the specied path
 
@@ -326,12 +302,11 @@ class NFL_Stats_Scraper:
         ----------
         df : pd.DataFrame
             The data to save.
-        csvName : str
+        csv_name : str
             The csv file name to save to.
-        csvPath : str
+        csv_path : str
             The path to save the csv file.
-        
-        saveIndex : bool
+        save_index : bool
             If the index name/values of the DataFrame shoulde be saved
 
         Returns
@@ -339,13 +314,14 @@ class NFL_Stats_Scraper:
         None.
         '''        
         # verify the save paths exists, create other wise        
-        if not os.path.exists(csvPath):
-            print(f'INFO: creating path for {csvPath}')
-            os.makedirs(csvPath, exist_ok=True)
+        if not os.path.exists(csv_path):
+            print(f'INFO: creating path for {csv_path}')
+            os.makedirs(csv_path, exist_ok=True)
         
-        csvFile = os.path.join(csvPath, csvName)
+        csvFile = os.path.join(csv_path, csv_name)
         
         print(f'INFO: saving dataframe to {csvFile}')
-        df.to_csv(csvFile, index=saveIndex)
+        df.to_csv(csvFile, index=save_index)
     
 #-----------------------------------------------------------------------------#
+

@@ -8,10 +8,13 @@ from selenium import webdriver
 #import requests
 import re
 import os
+import json
 import time
 
 from nfl_stats_scraper_constants import TEAM_ABR_TO_NAME, MAIN_URL, TARGET_GAME_TABLES, SLEEP_GET_SOUP_SEC
-from table_to_dataframe_methods import METHOD_CONVERSION_MAP, get_simple_table_df
+from table_to_dataframe_methods import METHOD_CONVERSION_MAP, get_simple_table_df,\
+MC_GET_DF_IDX
+import table_to_dataframe_methods as ttdm
 
 class NFL_Stats_Scraper:
     
@@ -115,7 +118,147 @@ class NFL_Stats_Scraper:
     
     #-------------------------------------------------------------------------#
     
-    def get_week_game_stats(self, year:int, week_num:int, save_csv:bool=False,
+    def get_home_away_teams(self, teams_playing_raw:str):
+        '''
+        Finds the home and away team name
+
+        Parameters
+        ----------
+        teams_playing_raw : str
+            The raw string taken from the html webpage.
+
+        Returns
+        -------
+        away_out : str
+            The away teams abr as defined in the constants file.
+        home_out : str
+            The home teams abr as defined in the constants file.
+        '''
+        away_out = ''
+        home_out = ''
+        
+        # Expect format is: away_city away_team at home_city home_team - date
+        teams_and_date = teams_playing_raw.split('-')
+        
+        if len(teams_and_date) != 2:
+            print(f'ERROR: unrecognized away at home - date format -> {teams_playing_raw}')
+            return away_out, home_out
+            
+        teams_raw = teams_and_date[0]
+        teams = teams_raw.split(' at ')
+        
+        if len(teams) != 2:
+            print(f'ERROR: unrecognized away_team at home_team format -> {teams}')
+            return away_out, home_out
+        
+        away_team = teams[0].strip()
+        home_team = teams[1].strip()
+        
+        away_found = False
+        home_found = False
+        for team_abr, team_parts in TEAM_ABR_TO_NAME.items():
+            check_team_name = f'{team_parts[0]} {team_parts[1]}'
+            if not away_found:
+                if check_team_name == away_team:
+                    away_out = team_abr
+                    away_found = True
+            if not home_found:
+                if check_team_name == home_team:
+                    home_out = team_abr
+                    home_found = True
+        
+        if not away_found:
+            print(f'ERROR: Did not find a match for the away team, {away_team}')
+        
+        if not home_found:
+            print(f'ERROR: Did not find a match for the home team, {home_team}')
+        
+        return away_out, home_out
+    
+    #-------------------------------------------------------------------------#
+    
+    def get_game_stats(self, game_url:str, save_csv:bool, save_path:str):
+        '''
+        Parses the tables from the provided game url into dataframes
+
+        Parameters
+        ----------
+        game_url : str
+            The link to the site where the stats are.
+        save_csv : bool
+            If the csv files for the game's tables should be saved.
+        save_path : str
+            The dir path to save the files to.
+
+        Returns
+        -------
+        game_dfs : dict
+            A dictionary of data frames.
+            Ex. games_dfs[table_name] = table_df
+        '''
+        try:
+            #
+            # Go to the page for the game and get the relevant tables to parse
+            #
+            game_dfs = dict()
+            
+            soup = self.get_soup(game_url)
+            
+            #
+            # Get the Away vs Home teams
+            #
+            teams_playing = soup.find('div', role='main').h1.text
+            hometeam, awayteam = self.get_home_away_teams(teams_playing)
+            tp_d = {'Home Team': hometeam, 'Away Team': awayteam,
+                    'Game URL': game_url}
+            
+            # save teams that are playing
+            if save_csv:
+                teams_playing_file = os.path.join(save_path, 'teams_playing.json')
+                with open(teams_playing_file, 'w+') as fh:
+                    json.dump(tp_d, fh)
+            
+            #
+            # Get the linescore table separately
+            #
+            linescore_tables = [t for t in soup.find_all('table') if 'linescore' in t.get('class')]
+            if len(linescore_tables) == 0:
+                print(f'WARNING: No linescore table found for {game_url}\n')
+            else:
+                if len(linescore_tables) > 1:
+                    print(f'WARNING: More than one, {len(linescore_tables)}, \
+                          linsecore tables found for {game_url}. \
+                              Using first found.\n')
+                print('INFO: saving linescore dataframe\n')
+                df = ttdm.get_linescore_df(linescore_tables[0])
+                csvName = 'linescore.csv'
+                self.__save_to_csv__(df, csvName, save_path)
+            
+            #
+            # Get and process the target tables
+            #
+            tables = {table.get('id'): table for table in soup.find_all('table')
+                      if table.get('id') in TARGET_GAME_TABLES}
+            print(f'DEBUG: {len(tables)} tables found for {game_url}')
+            
+            # process each of the tables
+            for tableName, tableData in tables.items():
+                df = METHOD_CONVERSION_MAP[tableName][MC_GET_DF_IDX](tableData)
+                
+                game_dfs[tableName] = df
+                
+                if save_csv:
+                    print(f'DEBUG: Saving the {tableName} dataframe to {save_path}')
+                    csvName = f'{tableName}.csv'
+                    self.__save_to_csv__(df, csvName, save_path)
+        except Exception as e:
+            print(f'ERROR: problem with getting game tables for {game_url}\nReason -> {e}\n\n')
+        
+        return game_dfs
+    
+    #-------------------------------------------------------------------------#
+    
+    def get_week_game_stats(self, year:int, week_n:int, save_csv:bool=False,
                             save_path:str='.'):
         '''
         Gets the DataFrames for a week's worth of games for the specified year
@@ -123,9 +266,13 @@ class NFL_Stats_Scraper:
         ----------
         year : int
             The year to search statistics for. Limited to [1980, Present_Year]
-        week_num : int
+        week_n : int
             The game week to get statistics for. Limited to 17 before 2021 and
             18 for 2021 and after.
+        save_csv : bool
+            If the csv files for the game's tables should be saved.
+        save_path : str
+            The dir path to save the files to.
 
         Returns
         -------
@@ -133,9 +280,9 @@ class NFL_Stats_Scraper:
             dictionary of dictionaries of pd.DataFrame
             Ex. games_dfs['game_0']['team_stats'] = pd.DataFrame
         '''
-        print(f'INFO: getting game stats for week {week_num} of year {year}')
-        
-        target_url = f'{MAIN_URL}/years/{year}/week_{week_num}.htm'
+        print(f'INFO: getting game stats for week {week_n} of year {year}')
+            
+        target_url = f'{MAIN_URL}/years/{year}/week_{week_n}.htm'
         
         soup = self.get_soup(target_url)
         
@@ -149,56 +296,44 @@ class NFL_Stats_Scraper:
         
         print(f'DEBUG: Total game tables found is {len(tables)}')
         
-        
         #
         # Get the link to every game's boxscore for the week
         #
         links_map = dict()
-        
-        for idx, table in enumerate(tables):
-            links = table.find_all('a')     # look for all the anchor tags
-            for link in links:
-                if 'boxscore' in link.get('href'):
-                    links_map[idx] = MAIN_URL + link.get('href')
-                    print(f'DEBUG: {idx} -> Adding the following link {links_map[idx]}')
-                    break
-        
+        try:
+            for idx, table in enumerate(tables):
+                links = table.find_all('a')     # look for all the anchor tags
+                for link in links:
+                    if 'boxscore' in link.get('href'):
+                        links_map[idx] = MAIN_URL + link.get('href')
+                        print(f'DEBUG: {idx} -> Adding the following link {links_map[idx]}')
+                        break
+        except Exception as e:
+            print(f'ERROR: Problem getting game links for week {week_n}, year {year}. Reason -> {e}\n\n')
         #
         # Go to the page for each game and get the relevant tables to parse
         #
         games_dfs = dict()
-        for k,v in links_map.items():
-            game_key = f'game_{k}'
-            games_dfs[game_key] = dict()
-            
-            soup = self.get_soup(v)
-            
-            teams_playing = soup.find('div', role='main').h1.text
-            games_dfs[game_key]['teams_playing'] = teams_playing
-            
-            tables = {table.get('id'): table for table in soup.find_all('table')
-                      if table.get('id') in TARGET_GAME_TABLES}
-            print(f'DEBUG: {k}: {len(tables)}')
-            
-            # process the tables
-            for tableName, tableData in tables.items():
-                df = METHOD_CONVERSION_MAP[tableName](tableData)
+        for game_idx, game_url in links_map.items():
+            game_key = f'game_{game_idx}'
+            game_dir = os.path.join(save_path, str(year), f'week_{week_n}', 
+                                    game_key)
+            if not os.path.exists(game_dir):
+                print(f'WARNING: creating game directory {game_dir}')
+                os.makedirs(game_dir, exist_ok=True)
                 
-                games_dfs[game_key][tableName] = df
-                
-                if save_csv:
-                    print(f'DEBUG: Saving the dataframe for week {week_num} game {game_key} {tableName}')
-                    csvName = f'{tableName}.csv'
-                    csvPath = os.path.join(save_path, str(year), f'week_{week_num}', game_key)
-                    self.__save_to_csv__(df, csvName, csvPath)
+            game_dfs = self.get_game_stats(game_url, save_csv, game_dir)
+            
+            games_dfs[game_key] = game_dfs
             
             # wait to try a new web page
-            time.sleep(10)
+            time.sleep(5)
+        
         
         return games_dfs
-    
-    #-------------------------------------------------------------------------#
 
+    #-------------------------------------------------------------------------#
+    
     def get_soup(self, target_url:str):
         '''
         Gets the Beautiful Soup object for a target page
@@ -294,7 +429,8 @@ class NFL_Stats_Scraper:
     
     #-------------------------------------------------------------------------#
     
-    def __save_to_csv__(self, df:pd.DataFrame, csv_name:str, csv_path:str, save_index:bool=False):
+    def __save_to_csv__(self, df:pd.DataFrame, csv_name:str, csv_path:str, 
+                        save_index:bool=False):
         '''
         Saves the DataFrame as a csv to the specied path
 

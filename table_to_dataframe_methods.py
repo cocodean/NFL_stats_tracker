@@ -10,7 +10,6 @@ import numpy as np
 import bs4
 import os
 import re
-import pickle as pkl
 
 import nfl_stats_scraper_constants as nssc
 # from nfl_stats_scraper_constants import TEAM_ABR_TO_NAME
@@ -32,6 +31,13 @@ def get_simple_table_df(table:bs4.element.Tag):
 
 #----------------------------------------------------------------------------#
 
+def get_linescore_df(table:bs4.element.Tag):
+    df = get_simple_table_df(table)
+    df.rename(columns={'Unnamed: 0': 'Logo', 'Unnamed: 1': 'Team Name Full'}, inplace=True)
+    return df
+
+#----------------------------------------------------------------------------#
+
 def get_game_info_df(table:bs4.element.Tag):
     df = get_simple_table_df(table)
     
@@ -48,6 +54,9 @@ def get_team_stats_df(table:bs4.element.Tag):
     
     df.rename(columns=col_names, inplace=True)
     df.drop(['Unnamed: 0'], inplace=True)
+    
+    teams = list(df.index)
+    df['Team'] = teams
     
     return df
 
@@ -155,42 +164,125 @@ def get_defense_advanced_df(table:bs4.element.Tag):
 # Methods for combining the scraped tables
 #
 
-def add_data_to_main_csv(save_dir:str, team:str, 
-                         week_n:int, year:int, 
-                         df_in:pd.DataFrame):
-    # Add to the main team csv
-    team_csv = os.path.join(save_dir, f'{team}_season_{year}.csv')
-    if os.path.exists(team_csv):
-        df_team = pd.read_csv(team_csv)
-    else:
-        print(f'INFO: creating csv for {team_csv}')
-        df_team = pd.DataFrame()
-    
-    # df_temp = pd.DataFrame([dtemp])
-    if 'Week' in df_team.columns and 'Year' in df_team.columns:
-        bool1 = df_team['Year'] == year
-        bool2 = df_team['Week'] == week_n
-        mask = bool1 & bool2
-        df_bool = df_team[mask]
-        idx = df_bool.index.tolist()[0]
-        
-        if len(df_bool) == 1: # week and year exists
-            print('INFO: team stats merge')
-            tdf = df_team[mask]
-            on_cols = ['Year', 'Week']
-            # on_col.extend()
-            # df_team = df_team.merge(df_temp, how='inner', on=['Week', 'Year'])
-            df_team = df_team.merge(df_in, how='right', on=on_cols)
-        elif len(df_bool) == 0:
-            print('INFO: team stats concat')
-            df_team = pd.concat([df_team, df_in], axis=0)
+def save_df_to_main_csv(save_dir:str, team:str, week_n:int, year:int, 
+                         df_in:pd.DataFrame, col_names:list):
+    try:
+        # Add to the main team csv
+        team_csv = os.path.join(save_dir, f'{team}_season_{year}.csv')
+        if os.path.exists(team_csv):
+            df_team = pd.read_csv(team_csv)
         else:
-            print('ERROR: check how we are applying the mask')
-    else:
-        df_team = pd.concat([df_team, df_in], axis=0)
+            print(f'INFO: creating csv for {team_csv}')
+            df_team = pd.DataFrame()
+        
+        col_set = set(df_team.columns)
+        
+        if 'Week' in df_team.columns and 'Year' in df_team.columns:
+            # week and year columns exists
+            # check if we have the desired week and year
+            bool1 = df_team['Year'] == year
+            bool2 = df_team['Week'] == week_n
+            mask = bool1 & bool2
+            df_bool = df_team[mask]
+            
+            if len(df_bool) == 1: # target week and year exist
+                # check if target columns exist
+                if len(col_set.intersection(col_names)) == 0:
+                    # columns dont exist yet so just merge normally
+                    print('INFO: first time seeing the team stats columns')
+                    df_team = df_team.merge(df_in, how='inner', on=['Week', 'Year'])
+                else:
+                    # columns exist so have to overwrite values
+                    idx = df_bool.index.tolist()[0]
+                    on_cols = ['Year', 'Week']
+                    on_cols.extend(col_names)
+                    tdf = df_bool[on_cols]
+                    tdf = tdf.merge(df_in, how='right', on=on_cols)
+                    for col in col_names:
+                        df_team.loc[idx, col] = tdf.iloc[0][col]
+                
+            elif len(df_bool) == 0:
+                print('INFO: team stats concat')
+                df_team = pd.concat([df_team, df_in], axis=0)
+            else:
+                print('ERROR: check how we are applying the mask')
+                
+        else:
+            # no week or year columns, most likely a new dataframe
+            df_team = pd.concat([df_team, df_in], axis=0)
+        
+        # save the updated dataframe
+        df_team.to_csv(team_csv, index=False)
+    except Exception as e:
+        print(f'ERROR: Failed to save the data frame to the main csv. Reason -> {e}\n')
+        print(f'ERROR: params,\nteam: {team},\nweek: {week_n},\nyear: {year},\
+              \ntarget columns: {col_names},\ndf columns: {df_in.columns},\nsave dir: {save_dir}\n')
+
+#----------------------------------------------------------------------------#
+
+def convert_linescore_to_main(csv_path:str, save_dir:str,
+                              week_n:int, year:int):
+    if not os.path.exists(csv_path):
+        print(f'ERROR: no linescore csv found for {csv_path}')
+        return
     
-    # save the updated dataframe
-    df_team.to_csv(team_csv, index=False)
+    # get csv data
+    df = pd.read_csv(csv_path)
+    
+    teams = list(df['Team Name Full'])
+    if len(teams) != 2:
+        print(f'ERROR: Different number of teams found, {len(teams)}')
+    
+    for team in teams:
+        # find with team it belongs to
+        team_abr = ''
+        for k, v in nssc.TEAM_ABR_TO_NAME.items():
+            if f'{v[0]} {v[1]}' == team:
+                team_abr = k
+                break
+        
+        if '' == team_abr:
+            print(f'ERROR: Failed to find a match for {team}')
+            continue
+        sdf = df[df['Team Name Full'] == team]
+        dtemp = dict()
+        dtemp['Year'] = year
+        dtemp['Week'] = week_n
+        
+        LINESCORE_TABLE_COLUMNS = [
+            'LS First Quarter Pts Scored',
+            'LS Second Quarter Pts Scored',
+            'LS Third Quarter Pts Scored',
+            'LS Fourth Quarter Pts Scored',
+            'LS Final Score',
+            'LS First Quarter Pts Gave Up',
+            'LS Second Quarter Pts Gave Up',
+            'LS Third Quarter Pts Gave Up',
+            'LS Fourth Quarter Pts Gave Up',
+            'LS Total Points Gave Up',
+            'LS Won Game'
+            ]
+        
+        dtemp['LS First Quarter Pts Scored'] = sdf['1'].values[0]
+        dtemp['LS Second Quarter Pts Scored'] = sdf['2'].values[0]
+        dtemp['LS Third Quarter Pts Scored'] = sdf['3'].values[0]
+        dtemp['LS Fourth Quarter Pts Scored'] = sdf['4'].values[0]
+        team_final_score = sdf['Final'].values[0]
+        dtemp['LS Final Score'] = team_final_score
+        
+        odf = df[df['Team Name Full'] != team]
+        dtemp['LS First Quarter Pts Gave Up'] = odf['1'].values[0]
+        dtemp['LS Second Quarter Pts Gave Up'] = odf['2'].values[0]
+        dtemp['LS Third Quarter Pts Gave Up'] = odf['2'].values[0]
+        dtemp['LS Fourth Quarter Pts Gave Up'] = odf['3'].values[0]
+        other_team_final_score = odf['Final'].values[0]
+        dtemp['LS Total Points Gave Up'] = other_team_final_score
+        
+        dtemp['LS Won Game'] = 1 if team_final_score > other_team_final_score else 0
+        
+        df_temp = pd.DataFrame([dtemp])
+        
+        save_df_to_main_csv(save_dir, team_abr, week_n, year, df_temp, LINESCORE_TABLE_COLUMNS)
 
 #----------------------------------------------------------------------------#
 
@@ -271,41 +363,18 @@ def convert_game_info_to_main(csv_path:str, save_dir:str,
             print(f'ERROR: found {len(teams)} teams for csv {team_stats_csv}')
             return
         
+        GAME_INFO_COLUMNS = ['GI Vegas Line', 'GI Over/Under']
         for team in teams:
             dtemp = dict()
             dtemp['Year'] = year
             dtemp['Week'] = week_n
             
-            dtemp['Vegas Line'] = odds * -1 if team == favored_team else odds
-            dtemp['Over/Under'] = over_under
-            
-            # Add to the main team csv
-            team_csv = os.path.join(save_dir, f'{team}_season_{year}.csv')
-            if os.path.exists(team_csv):
-                df_team = pd.read_csv(team_csv)
-            else:
-                print(f'INFO: creating csv for {team_csv}')
-                df_team = pd.DataFrame()
+            dtemp['GI Vegas Line'] = odds * -1 if team == favored_team else odds
+            dtemp['GI Over/Under'] = over_under
             
             df_temp = pd.DataFrame([dtemp])
-            if 'Week' in df_team.columns and 'Year' in df_team.columns:
-                df_bool = df_team[df_team['Year'] == year]
-                df_bool = df_bool[df_bool['Week'] == week_n]
-                
-                if len(df_bool) == 1: # week and year exists
-                    print('INFO: game info merge')
-                    df_team = df_team.merge(df_temp, how='inner', on=['Week', 'Year'])
-                elif len(df_bool) == 0:
-                    print('INFO: game info concat')
-                    df_team = pd.concat([df_team, df_temp], axis=0)
-                else:
-                    print('ERROR: check how we are applying the mask')
-            else:
-                df_team = pd.concat([df_team, df_temp], axis=0)
             
-            # save the updated dataframe
-            df_team.to_csv(team_csv, index=False)
-            
+            save_df_to_main_csv(save_dir, team, week_n, year, df_temp, GAME_INFO_COLUMNS)
         
     except Exception as e:
         print(f'ERROR: convert_game_info_to_main, Reason -> {e}')
@@ -430,62 +499,16 @@ def convert_team_stats_to_main(csv_path:str, save_dir:str,
         dtemp['Week'] = week_n
         dtemp['Year'] = year
         
-        # Add to the main team csv
-        team_csv = os.path.join(save_dir, f'{team}_season_{year}.csv')
-        if os.path.exists(team_csv):
-            df_team = pd.read_csv(team_csv)
-        else:
-            print(f'INFO: creating csv for {team_csv}')
-            df_team = pd.DataFrame()
-        
         df_temp = pd.DataFrame([dtemp])
         
-        col_set = set(df_team.columns)
-        
-        
-        if 'Week' in df_team.columns and 'Year' in df_team.columns:
-            # week and year columns exists
-            # check if we have the desired week and year
-            bool1 = df_team['Year'] == year
-            bool2 = df_team['Week'] == week_n
-            mask = bool1 & bool2
-            df_bool = df_team[mask]
-            
-            if len(df_bool) == 1: # target week and year exist
-                # check if target columns exist
-                if len(col_set.intersection(nssc.TEAM_STATS_COLUMNS)) == 0:
-                    # columns dont exist yet so just merge normally
-                    print('INFO: first time seeing the team stats columns')
-                    df_team = df_team.merge(df_temp, how='inner', on=['Week', 'Year'])
-                else:
-                    # columns exist so have to overwrite values
-                    idx = df_bool.index.tolist()[0]
-                    on_cols = ['Year', 'Week']
-                    on_cols.extend(nssc.TEAM_STATS_COLUMNS)
-                    tdf = df_bool[on_cols]
-                    tdf = tdf.merge(df_temp, how='right', on=on_cols)
-                    for col in nssc.TEAM_STATS_COLUMNS:
-                        df_team.loc[idx, col] = tdf.iloc[0][col]
-                
-            elif len(df_bool) == 0:
-                print('INFO: team stats concat')
-                df_team = pd.concat([df_team, df_temp], axis=0)
-            else:
-                print('ERROR: check how we are applying the mask')
-                
-        else:
-            # no week or year columns, most likely a new dataframe
-            df_team = pd.concat([df_team, df_temp], axis=0)
-        
-        # save the updated dataframe
-        df_team.to_csv(team_csv, index=False)
+        save_df_to_main_csv(save_dir, team, week_n, year, df_temp, nssc.TEAM_STATS_COLUMNS)
         
     # except Exception as e:
     #     print(f"ERROR: convert team stats for {csv_path}. Reason --> {e}\n")
 
 #----------------------------------------------------------------------------#
 
-def comvert_table_to_main(table_name: str, csv_path:str, save_dir:str, 
+def convert_table_to_main(table_name: str, csv_path:str, save_dir:str, 
                           week_n:int, year:int):
     # verify file exists
     if not os.path.exists(csv_path):
@@ -516,8 +539,7 @@ def comvert_table_to_main(table_name: str, csv_path:str, save_dir:str,
         
         # dictionary used to build up the dataframe to add 
         dtemp = dict()
-        dtemp['Week'] = week_n
-        dtemp['Year'] = year
+        
         # process each feature
         for feat_key in table_column_map.keys():
             method = table_column_map[feat_key][nssc.MASTER_METHOD_IDX]
@@ -529,78 +551,39 @@ def comvert_table_to_main(table_name: str, csv_path:str, save_dir:str,
             val = method(df_team[feat_key].astype(np.float))
             dtemp[feat_name] = val
         
-        # open the team data frame to add the data
-        team_csv = os.path.join(save_dir, f'{team}_season_{year}.csv')
-        if os.path.exists(team_csv):
-            df_main = pd.read_csv(team_csv)
-        else:
-            print(f'INFO: creating csv for {team_csv}')
-            df_main = pd.DataFrame()
+        col_names = list(dtemp.keys())
+        
+        dtemp['Week'] = week_n
+        dtemp['Year'] = year
         
         # get dataframe to add of the converted data
         df_temp = pd.DataFrame([dtemp])
         
-        col_set = set(df_main.columns)
-        
-        if 'Week' in df_main.columns and 'Year' in df_main.columns:
-            data_cols = [v[0] for v in table_column_map.values()]
-            # week and year columns exists
-            # check if we have the desired week and year
-            bool1 = df_main['Year'] == year
-            bool2 = df_main['Week'] == week_n
-            mask = bool1 & bool2
-            df_bool = df_main[mask]
-            
-            if len(df_bool) == 1: # target week and year exist
-                # check if target columns exist
-                if len(col_set.intersection(data_cols)) == 0:
-                    # columns dont exist yet so just merge normally
-                    print(f'INFO: first time seeing {table_name} columns')
-                    df_main = df_main.merge(df_temp, how='inner', on=['Week', 'Year'])
-                else:
-                    # columns exist so have to overwrite values
-                    idx = df_bool.index.tolist()[0]
-                    on_cols = ['Year', 'Week']
-                    on_cols.extend(data_cols)
-                    tdf = df_bool[on_cols]
-                    tdf = tdf.merge(df_temp, how='right', on=on_cols)
-                    for col in data_cols:
-                        df_main.loc[idx, col] = tdf.iloc[0][col]
-                
-            elif len(df_bool) == 0:
-                print(f'INFO: {table_name} concat')
-                df_main = pd.concat([df_main, df_temp], axis=0)
-            else:
-                print('ERROR: check how we are applying the mask')
-        else:
-            df_main = pd.concat([df_main, df_temp], axis=0)
-        
-        # save the updated dataframe
-        df_main.to_csv(team_csv, index=False)
+        save_df_to_main_csv(save_dir, team, week_n, year, df_temp, col_names)
 
 #----------------------------------------------------------------------------#
 
 def convert_player_offense_to_main(csv_path:str, save_dir:str, 
                                    week_n:int, year:int):
-    comvert_table_to_main('player offense', csv_path, save_dir, week_n, year)
+    convert_table_to_main('player offense', csv_path, save_dir, week_n, year)
 
 #----------------------------------------------------------------------------#
 
 def convert_player_defense_to_main(csv_path:str, save_dir:str, 
                                    week_n:int, year:int):
-    comvert_table_to_main('player defense', csv_path, save_dir, week_n, year)
+    convert_table_to_main('player defense', csv_path, save_dir, week_n, year)
 
 #----------------------------------------------------------------------------#
 
 def convert_kicking_to_main(csv_path:str, save_dir:str, 
                             week_n:int, year:int):
-    comvert_table_to_main('kicking', csv_path, save_dir, week_n, year)
+    convert_table_to_main('kicking', csv_path, save_dir, week_n, year)
 
 #----------------------------------------------------------------------------#
 
 def convert_returns_to_main(csv_path:str, save_dir:str, 
                             week_n:int, year:int):
-    comvert_table_to_main('returns', csv_path, save_dir, week_n, year)
+    convert_table_to_main('returns', csv_path, save_dir, week_n, year)
 
 #----------------------------------------------------------------------------#
 
@@ -612,6 +595,7 @@ def convert_returns_to_main(csv_path:str, save_dir:str,
 MC_GET_DF_IDX = 0
 MC_CONV_IDX = 1
 METHOD_CONVERSION_MAP = {
+    'linescore': (get_linescore_df, convert_linescore_to_main),
     'game_info': (get_game_info_df, convert_game_info_to_main),
     'team_stats': (get_team_stats_df, convert_team_stats_to_main),
     'player_offense': (get_player_offense_df, convert_player_offense_to_main),
@@ -650,6 +634,8 @@ def combine_game_stats(game_dir:str, save_path:str, week_n:int, year:int):
         
         # process into the team' main season data frame
         converter(csv_file, save_path, week_n, year)
+        
+    
 
 #-------------------------------------------------------------------------#
 
@@ -686,3 +672,5 @@ def combine_season_stats(year_dir:str, save_path:str, year:int,):
             continue
         
         combine_week_stats(week_dir, save_path, week_n, year)
+
+#-------------------------------------------------------------------------#

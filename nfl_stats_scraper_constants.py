@@ -57,6 +57,11 @@ SLEEP_GET_SOUP_SEC = 5
 
 #-----------------------------------------------------------------------------#
 
+N_WEEKS_SEASON = 18 # 17-weeks up to 2020, then 18-weeks 2021 and on
+K_VALS = (1, 2, 3, 5)
+
+#-----------------------------------------------------------------------------#
+
 #
 # HTML Table Constants
 #
@@ -89,6 +94,20 @@ TABLE_COLUMN_ABR_TO_NAME = {
 simple_sum = lambda colX: 0 if len(colX.dropna()) == 0 else np.nansum(colX)
 simple_max = lambda xCol: 0 if len(xCol.dropna()) == 0 else np.nanmax(xCol)
 calc_avg_rate = lambda xCol: 0 if len(xCol.dropna()) == 0 else np.nansum(xCol) / np.sum([1.0 for x in xCol if isinstance(x, float)])
+
+LINESCORE_TABLE_COLUMNS = (
+            'LS First Quarter Pts Scored',
+            'LS Second Quarter Pts Scored',
+            'LS Third Quarter Pts Scored',
+            'LS Fourth Quarter Pts Scored',
+            'LS Final Score',
+            'LS First Quarter Pts Gave Up',
+            'LS Second Quarter Pts Gave Up',
+            'LS Third Quarter Pts Gave Up',
+            'LS Fourth Quarter Pts Gave Up',
+            'LS Total Points Gave Up',
+            'LS Won Game'
+            )
 
 GAME_INFO_COLUMNS = ('GI Vegas Line',
                      'GI Over/Under')

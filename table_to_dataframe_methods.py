@@ -614,6 +614,7 @@ METHOD_CONVERSION_MAP = {
 # Methods used to combine the individual tables scraped using NFL_Stats_Scraper
 #
 def combine_game_stats(game_dir:str, save_path:str, week_n:int, year:int):
+    print(f'INFO: getting game stats for {year}-{week_n}, {game_dir}')
     if not os.path.exists(game_dir):
         print(f'ERROR: the game dir provided is not valid, {game_dir}')
         return

@@ -661,7 +661,7 @@ def combine_week_stats(week_dir:str, save_path:str, week_n:int, year:int):
 
 #-------------------------------------------------------------------------#
 
-def combine_season_stats(year_dir:str, save_path:str, year:int,):
+def combine_season_stats(year_dir:str, save_path:str, year:int):
     # assume 18-week season. Let the error detection handle less weeks
     TOTAL_WEEKS = 18
     

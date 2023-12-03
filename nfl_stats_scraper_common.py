@@ -7,6 +7,9 @@ Created on Thu Nov 30 21:41:44 2023
 
 import pandas as pd
 import os
+import json
+
+import nfl_stats_scraper_constants as nssc
 
 #-----------------------------------------------------------------------------#
 
@@ -88,3 +91,157 @@ def save_df_to_main(save_dir:str, team:str, week_n:int, year:int,
         print(f'ERROR: Failed to save the data frame to the main csv. Reason -> {e}\n')
         print(f'ERROR: params,\nteam: {team},\nweek: {week_n},\nyear: {year},\
               \ntarget columns: {col_names},\ndf columns: {df_in.columns},\nsave dir: {save_dir}\n')
+
+#-----------------------------------------------------------------------------#
+
+def create_season_dataset(year_dir:int, year:int, save_path:str, save_csv:bool=True):
+    if not os.path.exists(year_dir):
+        print(f'ERROR: the season directory does not exist, {year_dir}\n')
+        return
+    
+    teams_season_dir = os.path.join(year_dir, 'team_season_stats')
+    
+    if not os.path.exists(year_dir):
+        print(f'ERROR: the teams season directory does not exist, {teams_season_dir}\n')
+        return
+    
+    lod = list()
+    for week_n in range(1, nssc.N_WEEKS_SEASON + 1):
+        week_dir = os.path.join(year_dir, f'week_{week_n}')
+        if not os.path.exists(week_dir):
+            print(f'WARNING: the week directory does not exist, {week_dir}\n')
+            continue
+        
+        for game_n in range(nssc.N_GAMES_WEEK):
+            dtemp = dict()
+            dtemp['Year'] = year
+            dtemp['Week'] = week_n
+            dtemp['Game Index'] = game_n
+            
+            game_dir = os.path.join(week_dir, f'game_{game_n}')
+            if not os.path.exists(game_dir):
+                print(f'WARNING: the game directory does not exist, {game_dir}\n')
+                continue
+            
+            # get home and away teams
+            teams_json = os.path.join(game_dir, 'teams_playing.json')
+            with open(teams_json, 'r') as fh:
+                teams_data = json.load(fh)
+            
+            # if either are empty, we will assume WAS since that one is giving
+            # trouble with same city but different team names
+            home_team = teams_data['Home Team']
+            away_team = teams_data['Away Team']
+            
+            dtemp['Home Team'] = home_team
+            dtemp['Away Team'] = away_team
+            
+            # get home and away teams' dataframe
+            home_csv = os.path.join(teams_season_dir, f'{home_team}_season_{year}.csv')
+            away_csv = os.path.join(teams_season_dir, f'{away_team}_season_{year}.csv')
+            
+            df_home = pd.read_csv(home_csv)
+            df_away = pd.read_csv(away_csv)
+            
+            sdf_home = df_home[df_home['Week'] == week_n]
+            if len(sdf_home) != 1:
+                print(f'ERROR: {year}-{week_n}-{game_n} length of home team is {len(sdf_home)}\n')
+                
+            sdf_away = df_away[df_away['Week'] == week_n]
+            if len(sdf_away) != 1:
+                print(f'ERROR: {year}-{week_n}-{game_n} length of away team is {len(sdf_away)}\n')
+            
+            # add the away and home team data, both should have the same column names
+            print(sdf_away.columns)
+            for col in sdf_away.columns:
+                if col in ['Year', 'Week']:
+                    continue
+                elif col[:3] in nssc.BASE_FEATURE_PREFIXES:
+                    # dont keep any base features from the game tables
+                    continue
+                
+                away_feat_name = f'Away {col}'
+                dtemp[away_feat_name] = sdf_away[col].values[0]
+                
+                home_feat_name = f'Home {col}'
+                dtemp[home_feat_name] = sdf_home[col].values[0]
+                
+            # determine if the home team won
+            home_score = sdf_home['LS Final Score'].values[0]
+            away_score = sdf_away['LS Final Score'].values[0]
+            dtemp['Winning Team'] = 1 if home_score > away_score else 0
+            
+            # add to the list of dictionaries to be used for dataframe constuctor
+            lod.append(dtemp)
+            
+    df_season = pd.DataFrame(lod)
+    
+    # save the season dataset
+    if save_csv:
+        season_csv = os.path.join(save_path, f'season_{year}_dataset.csv')
+        df_season.to_csv(season_csv, index=False)
+    
+    return df_season
+
+#-----------------------------------------------------------------------------#
+
+def create_mult_season_datasets(start_year:int, end_year:int, stats_dir:str, save_path:str):
+    if not os.path.exists(stats_dir):
+        print(f'ERROR: the season directory does not exist, {stats_dir}\n')
+        return
+    
+    for year in range(start_year, end_year + 1):
+        year_dir = os.path.join(stats_dir, str(year))
+        
+        create_season_dataset(year_dir, year, save_path)
+    
+    print(f'INFO: finished creating season datasets for years [{start_year}, {end_year}]\n')
+
+#-----------------------------------------------------------------------------#
+
+def create_train_val_test_sets(stats_dir:str, train_years:list, 
+                               validation_years:list, test_years:list,
+                               save_path:str):
+    if not os.path.exists(stats_dir):
+        print(f'ERROR: Nothing to create, the stats directory does not exist, {stats_dir}\n')
+        return
+    
+    df_train = pd.DataFrame()
+    for year in train_years:
+        season_csv = os.path.join(stats_dir, f'season_{year}_dataset.csv')
+        df_season = pd.read_csv(season_csv)
+        sdf = df_season[df_season['Week'] > 1]
+        
+        df_train = pd.concat([df_train, sdf])
+        df_train.reset_index(inplace=True, drop=True)
+    
+    df_validate = pd.DataFrame()
+    for year in validation_years:
+        season_csv = os.path.join(stats_dir, f'season_{year}_dataset.csv')
+        df_season = pd.read_csv(season_csv)
+        sdf = df_season[df_season['Week'] > 1]
+        
+        df_validate = pd.concat([df_validate, sdf])
+        df_validate.reset_index(inplace=True, drop=True)
+    
+    df_test = pd.DataFrame()
+    for year in test_years:
+        season_csv = os.path.join(stats_dir, f'season_{year}_dataset.csv')
+        df_season = pd.read_csv(season_csv)
+        sdf = df_season[df_season['Week'] > 1]
+        
+        df_test = pd.concat([df_test, sdf])
+        df_test.reset_index(inplace=True, drop=True)
+    
+    # save all datasets
+    train_csv = os.path.join(save_path, 'train_dataset.csv')
+    df_train.to_csv(train_csv, index=False)
+    
+    validate_csv = os.path.join(save_path, 'validate_dataset.csv')
+    df_validate.to_csv(validate_csv, index=False)
+    
+    test_csv = os.path.join(save_path, 'test_dataset.csv')
+    df_test.to_csv(test_csv, index=False)
+
+#-----------------------------------------------------------------------------#
+

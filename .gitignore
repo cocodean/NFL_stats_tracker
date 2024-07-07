@@ -127,3 +127,17 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+#
+# USER ADDED
+#
+
+# ignore data collected
+archive_data/
+stats/
+
+# ignore logs from running scripts
+logs/
+
+# ignore sandbox
+sandbox/

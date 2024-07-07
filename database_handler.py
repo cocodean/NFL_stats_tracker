@@ -21,8 +21,7 @@ class Database_Handler():
     def insert_data(self, 
                   db_path:str, 
                   table_name:str, 
-                  monitors:list, 
-                  values:list,
+                  data_d:dict, 
                   create_db:bool=False) -> bool:
         data_inserted = False
         
@@ -32,11 +31,35 @@ class Database_Handler():
             print(f'INFO: Failed to insert data becuase no connection was made to {db_path}')
             return data_inserted
         
-        # create the sql query
-        # verify table or create table
+        #
+        # ASSUME table exists since we dont know the column types to create one
+        #
         
-        sql_stmt = f''
+        # create sql insert statement
+        col_names = list()
+        col_vals = list()
+        for col_name, col_val in data_d.items():
+            col_names.append(col_name)
+            if isinstance(col_val, str):
+                col_vals.append(f'"{col_val}"')
+            else:
+                col_vals.append(f'{col_val}')
+        col_names = ','.join(col_names)
+        col_vals = ','.join(col_vals)
+        sql_stmnt = f'INSERT INTO {table_name} ({col_names}) VALUES ({col_vals});'
+        print(f'INFO: executing the insert statement,\n{sql_stmnt}')
         
+        try:
+            cursor = conn.cursor()
+            result = cursor.execute(sql_stmnt)
+            data_inserted = True
+        except Exception as e:
+            print(f'ERROR: failed to execute sql stament {sql_stmnt} for reason -> {e}')
+        
+        conn.commit()
+        conn.close()
+        
+        return data_inserted
     
     #-------------------------------------------------------------------------#
     
@@ -44,14 +67,16 @@ class Database_Handler():
                      db_path:str, 
                      table_name:str, 
                      monitors_types_d:dict,
-                     create_db:bool=False) -> bool:
+                     create_db:bool=False,
+                     conn=None) -> bool:
         table_created = False
         
-        # get connection to database
-        conn = self._connect_to_db(db_path, create_db)
         if conn is None:
-            print(f'INFO: Failed to create table becuase no connection was made to {db_path}')
-            return table_created
+            # get connection to database
+            conn = self._connect_to_db(db_path, create_db)
+            if conn is None:
+                print(f'INFO: Failed to create table becuase no connection was made to {db_path}')
+                return table_created
         
         # prepare the sql statement
         # "monitor_name monitor_type"
@@ -70,6 +95,9 @@ class Database_Handler():
             table_created = True
         except Exception as e:
             print(f'ERROR: failed to execute sql statement for reason -> {e}')
+        
+        conn.commit()
+        conn.close()
         
         return table_created
     
